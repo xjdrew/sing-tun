@@ -42,7 +42,17 @@ jobs:
       - name: Root package tests with race detector
         run: go test -race -count=1 -v .
       - name: Unprivileged ping tests
+        if: runner.os != 'Linux'
         run: go test -count=1 -v ./ping
+      - name: Unprivileged Linux ping tests
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          old_ping_group_range=$(sysctl -n net.ipv4.ping_group_range)
+          trap 'sudo sysctl -w "net.ipv4.ping_group_range=$old_ping_group_range" >/dev/null' EXIT
+          runner_gid=$(id -g)
+          sudo sysctl -w "net.ipv4.ping_group_range=$runner_gid $runner_gid"
+          go test -count=1 -v ./ping
       - name: Privileged ping tests
         if: runner.os != 'Windows'
         run: |
