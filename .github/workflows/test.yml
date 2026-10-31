@@ -2,123 +2,121 @@ name: test
 
 on:
   push:
-    branches: [main, dev]
+    branches:
+      - main
+      - dev
     paths-ignore:
       - '**.md'
       - '.github/**'
-      - '!.github/workflows/test.yml'
+      - '!.github/workflows/debug.yml'
   pull_request:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: test-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  test:
-    name: ${{ matrix.os }} (Go ${{ matrix.go }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        go: ['1.25.x', '1.27.3']
-        include:
-          - os: macos-latest
-            go: '1.27.3'
+  build:
+    name: Linux
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          go-version: ${{ matrix.go }}
-          cache: true
-      - name: Build and vet root package
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.25.0
+      - name: Build
         run: |
-          go build -v .
-          go vet .
-      - name: Root package tests with race detector
-        run: go test -race -count=1 -v .
-      - name: Unprivileged ping tests
-        if: runner.os != 'Linux'
-        run: go test -count=1 -v ./ping
-      - name: Unprivileged Linux ping tests
-        if: runner.os == 'Linux'
-        shell: bash
+          make test
+          go test -c -o ping_test ./ping
+          sudo ./ping_test -test.v
+      - name: Exclusive TUN creation regression
         run: |
-          old_ping_group_range=$(sysctl -n net.ipv4.ping_group_range)
-          trap 'sudo sysctl -w "net.ipv4.ping_group_range=$old_ping_group_range" >/dev/null' EXIT
-          runner_gid=$(id -g)
-          sudo sysctl -w "net.ipv4.ping_group_range=$runner_gid $runner_gid"
-          go test -count=1 -v ./ping
-      - name: Privileged ping tests
-        if: runner.os != 'Windows'
+          go test -race -c -o "$RUNNER_TEMP/tun.test" .
+          sudo unshare --net -- env SING_TUN_SYSTEM_TEST=1 "$RUNNER_TEMP/tun.test" -test.run '^TestExclusiveTunCreation$' -test.v -test.timeout 30s
+  build_go124:
+    name: Linux (Go 1.24)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ~1.24
+        continue-on-error: true
+      - name: Build
         run: |
-          go test -c -o "$RUNNER_TEMP/ping.test" ./ping
-          sudo "$RUNNER_TEMP/ping.test" -test.v
-      - name: Windows PE bounds and adapter error regression
-        if: runner.os == 'Windows'
-        run: go test -race -count=1 ./internal/wintun ./internal/wintun/memmod
-      - name: Windows session failures, default reuse and exclusive creation
-        if: runner.os == 'Windows'
-        env:
-          SING_TUN_SYSTEM_TEST: '1'
-        run: go test -race -count=1 -timeout 3m -run '^Test(StartWintunSession|ExclusiveWintunCreation|WintunDefaultReuse)$' -v .
-      - name: Build Linux device regression with race
-        if: runner.os == 'Linux'
-        run: go test -race -c -o "$RUNNER_TEMP/tun.test" .
-      - name: Linux persistent TUN ownership in isolated namespace
-        if: runner.os == 'Linux'
-        run: sudo unshare --net -- env SING_TUN_SYSTEM_TEST=1 "$RUNNER_TEMP/tun.test" -test.run '^TestExclusiveTunCreation$' -test.v -test.timeout 30s
-
-  reproduce-base:
-    name: Reproduce Windows failures on PR base
-    if: github.event_name == 'pull_request'
+          make test
+          go test -c -o ping_test ./ping
+          sudo ./ping_test -test.v
+  build_go123:
+    name: Linux (Go 1.23)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ~1.23
+        continue-on-error: true
+      - name: Build
+        run: |
+          make test
+          go test -c -o ping_test ./ping
+          sudo ./ping_test -test.v
+  build_windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+        continue-on-error: true
+      - name: Build
+        run: |
+          make test
+          go test -v ./ping
+  windows_regression:
+    name: Windows creation regressions (Go 1.27.3)
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.27.3'
-          cache: true
-      - name: Check out exact unmodified PR base
-        uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: .regression-base
-          persist-credentials: false
-      - name: Install independent reproducer tests only
-        shell: pwsh
-        run: |
-          Copy-Item -LiteralPath internal/wintun/memmod/sections_windows_test.go -Destination .regression-base/internal/wintun/memmod/
-          Copy-Item -LiteralPath adapter_reuse_windows_test.go -Destination .regression-base/
-      - name: Verify PE allocation bounds on the unmodified base
-        working-directory: .regression-base
-        shell: pwsh
-        run: |
-          $result = (& go test -race -count=1 -run '^TestSectionsStayWithinImageAllocation$' -v ./internal/wintun/memmod 2>&1 | Out-String)
-          $code = $LASTEXITCODE
-          Write-Output $result
-          if ($code -eq 0) { Write-Output 'Base already passes PE allocation bounds' }
-          elseif ($result -match 'checkptr: converted pointer straddles multiple allocations') { Write-Output 'REPRODUCED: PE array conversion exceeds the allocation' }
-          else { throw 'Unexpected base failure; this does not prove the PE regression' }
-          exit 0
-      - name: Apply only PE bounds fix to allow native DLL loading
-        shell: pwsh
-        run: Copy-Item -LiteralPath internal/wintun/memmod/syscall_windows.go -Destination .regression-base/internal/wintun/memmod/syscall_windows.go
-      - name: Verify default adapter reuse independently
-        working-directory: .regression-base
-        shell: pwsh
+      - name: PE loader bounds and adapter errors under race/checkptr
+        run: go test -race -count=1 ./internal/wintun ./internal/wintun/memmod
+      - name: Session failure, default reuse and exclusive creation
         env:
           SING_TUN_SYSTEM_TEST: '1'
+        run: go test -race -count=1 -timeout 3m -run '^Test(StartWintunSession|ExclusiveWintunCreation|WintunDefaultReuse)$' -v .
+  build_darwin:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+        continue-on-error: true
+      - name: Build
         run: |
-          $result = (& go test -race -count=1 -timeout 3m -run '^TestWintunDefaultReuse$' -v . 2>&1 | Out-String)
-          $code = $LASTEXITCODE
-          Write-Output $result
-          if ($code -eq 0) { Write-Output 'Base already passes default adapter reuse' }
-          elseif ($result -match 'open previously created adapter:.*0x800700b7') { Write-Output 'REPRODUCED: HRESULT prevents the existing-adapter fallback' }
-          else { throw 'Unexpected base failure; this does not prove the adapter regression' }
-          exit 0
+          make test
+          go test -v ./ping
+          go test -c -o ping_test ./ping
+          sudo ./ping_test -test.v

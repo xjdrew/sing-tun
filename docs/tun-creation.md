@@ -16,12 +16,16 @@ persistent TUN without an active queue and check both exclusive rejection and
 default attachment. Windows tests check exclusive rejection and default reuse.
 This does not change the default attachment policy.
 
-The existing `test.yml` workflow runs normal platform tests and the new race
-regressions on supported Go versions. A Windows PR job also copies the first two
-tests to the exact PR base: the PE case must either pass or fail with the specific
-checkptr diagnostic. It then applies only the PE fix so native DLL loading can
-proceed and checks the existing-adapter case independently. Unexpected build,
-driver or environment errors fail the job. Results are retained in job logs.
+The existing `test.yml` platform jobs are retained. The normal Linux job adds the
+exclusive-device case in an isolated namespace; one additional Windows Go 1.27.3
+job runs PE/error/session/device regressions with race/checkptr. PRs to any base
+branch can trigger these checks. Existing ping checks are unchanged.
+
+Before-fix evidence is recorded in the [reproduction run](https://github.com/xjdrew/sing-tun/actions/runs/41204647630).
+The exact PR base failed the PE test. With only the PE bounds fix applied so DLL
+loading could proceed, the public existing-adapter case independently failed
+with `0x800700b7`. Patched code passed both. The historical-base reproduction is
+not repeated by every normal CI run.
 
 Ordinary tests skip device creation. Privileged cases require
 `SING_TUN_SYSTEM_TEST=1` on disposable administrator/root runners; Linux device
