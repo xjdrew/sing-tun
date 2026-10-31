@@ -59,7 +59,7 @@ func TestExclusiveWintunCreation(t *testing.T) {
 		second.Close()
 	}
 	if !errors.Is(err, os.ErrExist) {
-		t.Fatalf("exclusive creation must reject existing adapter: %v", err)
+		t.Fatalf("exclusive creation must reject existing adapter: %T %#v (%v)", err, err, err)
 	}
 	if name, err := first.Name(); err != nil || name != options.Name {
 		t.Fatalf("original adapter changed: %q %v", name, err)
