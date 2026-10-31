@@ -33,6 +33,15 @@ func closeAdapter(wintun *Adapter) {
 	syscall.SyscallN(procWintunCloseAdapter.Addr(), wintun.handle)
 }
 
+// Wintun may report HRESULT_FROM_WIN32 through GetLastError. Normalize only
+// that facility so errors.Is works with os.ErrExist/ErrPermission/ErrNotExist.
+func adapterError(code syscall.Errno) error {
+	if uint32(code)&0xffff0000 == 0x80070000 {
+		return syscall.Errno(uint32(code) & 0xffff)
+	}
+	return code
+}
+
 // CreateAdapter creates a Wintun adapter. name is the cosmetic name of the adapter.
 // tunnelType represents the type of adapter and should be "Wintun". requestedGUID is
 // the GUID of the created network adapter, which then influences NLA generation
@@ -55,7 +64,7 @@ func CreateAdapter(name string, tunnelType string, requestedGUID *windows.GUID) 
 	}
 	r0, _, e1 := syscall.SyscallN(procWintunCreateAdapter.Addr(), uintptr(unsafe.Pointer(name16)), uintptr(unsafe.Pointer(tunnelType16)), uintptr(unsafe.Pointer(requestedGUID)))
 	if r0 == 0 {
-		err = e1
+		err = adapterError(e1)
 		return
 	}
 	wintun = &Adapter{handle: r0}
@@ -72,7 +81,7 @@ func OpenAdapter(name string) (wintun *Adapter, err error) {
 	}
 	r0, _, e1 := syscall.SyscallN(procWintunOpenAdapter.Addr(), uintptr(unsafe.Pointer(name16)))
 	if r0 == 0 {
-		err = e1
+		err = adapterError(e1)
 		return
 	}
 	wintun = &Adapter{handle: r0}

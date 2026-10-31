@@ -13,6 +13,9 @@ with a pinned commit from `github.com/xjdrew/sing-tun`.
 - Add opt-in `Options.EXP_Exclusive`: Linux uses `IFF_TUN_EXCL`, and Windows
   does not reopen an existing adapter after `CreateAdapter` reports it exists.
   The default attachment behavior remains available to existing library users.
+- Normalize `HRESULT_FROM_WIN32` errors from Wintun adapter create/open calls.
+  Real duplicate creation reports `0x800700b7`; returning raw HRESULT values
+  prevents `errors.Is(err, os.ErrExist)` from recognizing an existing adapter.
 
 PR CI runs Go 1.25 and 1.27.3 race regressions on Linux and Windows. It tests
 heap-backed PE section tables, injected session/cleanup failures, real Wintun

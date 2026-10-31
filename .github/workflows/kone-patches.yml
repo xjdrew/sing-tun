@@ -31,7 +31,7 @@ jobs:
         run: go vet .
       - name: Windows PE loader bounds under race/checkptr
         if: runner.os == 'Windows'
-        run: go test -race -count=1 ./internal/wintun/memmod
+        run: go test -race -count=1 ./internal/wintun ./internal/wintun/memmod
       - name: Windows session failure and real exclusive adapter creation
         if: runner.os == 'Windows'
         env:
