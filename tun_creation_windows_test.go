@@ -48,7 +48,7 @@ func TestExclusiveWintunCreation(t *testing.T) {
 	if os.Getenv("SING_TUN_SYSTEM_TEST") != "1" {
 		t.Skip("requires disposable administrator Windows runner")
 	}
-	options := Options{Name: fmt.Sprintf("tun-fork-%d", os.Getpid()), MTU: 1500, EXP_ExternalConfiguration: true, EXP_Exclusive: true}
+	options := Options{Name: fmt.Sprintf("tun-ci-%d", os.Getpid()), MTU: 1500, EXP_ExternalConfiguration: true, EXP_Exclusive: true}
 	first, err := New(options)
 	if err != nil {
 		t.Fatal(err)
