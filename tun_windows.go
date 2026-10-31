@@ -54,7 +54,7 @@ func New(options Options) (WinTun, error) {
 	}
 	adapter, err := wintun.CreateAdapter(options.Name, TunnelType, generateGUIDByDeviceName(options.Name))
 	if err != nil {
-		if !errors.Is(err, os.ErrExist) {
+		if options.EXP_Exclusive || !errors.Is(err, os.ErrExist) {
 			return nil, err
 		}
 		createErr := err
@@ -67,7 +67,7 @@ func New(options Options) (WinTun, error) {
 		adapter: adapter,
 		options: options,
 	}
-	session, err := adapter.StartSession(0x800000)
+	session, err := startWintunSession(adapter)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +80,20 @@ func New(options Options) (WinTun, error) {
 		return nil, err
 	}
 	return nativeTun, nil
+}
+
+type wintunSessionAdapter interface {
+	StartSession(uint32) (wintun.Session, error)
+	Close() error
+}
+
+// Transfer adapter ownership to the caller only after session creation succeeds.
+func startWintunSession(adapter wintunSessionAdapter) (wintun.Session, error) {
+	session, err := adapter.StartSession(0x800000)
+	if err != nil {
+		return session, errors.Join(err, adapter.Close())
+	}
+	return session, nil
 }
 
 func (t *NativeTun) configure() error {
